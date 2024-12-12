@@ -1,0 +1,75 @@
+<#
+    .DESCRIPTION
+    Function to get a list of all users who report to a specified person that are not:
+    -disabled 
+    -do not have common admin/service/secondary account prefixes or suffixes
+    -are not in the expected user OU
+    
+    .INPUTS
+    User    Should be the samaccountname of the target user
+    OU      Should be a near top level OU that houses standard user accounts to omit any false-positives
+
+    .EXAMPLE
+    Get-AllDirectReport -User 'billgates' -OU 'OU=Domain Users,DC=domain,DC=lan'
+#>
+
+function Get-AllDirectReports {
+    param (
+        [string]$SamAccountName, # SamAccountName of the user
+        [string]$OUFilter        # Organizational Unit to filter by
+    )
+
+    # Fetch the user object based on the SamAccountName
+    $user = Get-ADUser -Filter "SamAccountName -eq '$SamAccountName'" -Properties DistinguishedName -ErrorAction SilentlyContinue
+
+    # If the user is not found, exit the process and write a warning
+    if (-not $user) {
+        Write-Warning "User '$SamAccountName' not found. Exiting."
+        return @()
+    }
+
+    # Get the distinguished name of the user
+    $userDN = $user.DistinguishedName
+
+    # Fetch direct reports of the current user
+    $directReports = Get-ADUser -Identity $userDN -Properties DirectReports | Select-Object -ExpandProperty DirectReports -ErrorAction SilentlyContinue
+
+    # If there are no direct reports, return an empty array
+    if (-not $directReports) {
+        return @()
+    }
+
+    # Collect all reports recursively
+    $allReports = @()
+    foreach ($reportDN in $directReports) {
+        # Fetch the current direct report's object
+        $reportUser = Get-ADUser -Identity $reportDN -Properties Enabled, DistinguishedName, SamAccountName
+
+        # Skip the user if:
+        # 1. They are disabled
+        # 2. Their DN does not include the specified OU
+        # 3. Their SamAccountName contains 'admin', '2', or 'svc'
+        if (
+            $reportUser.Enabled -eq $true -and 
+            $reportUser.DistinguishedName -like "*$OUFilter*" -and
+            $reportUser.SamAccountName -notlike "*admin*" -and
+            $reportUser.SamAccountName -notlike "*2*" -and
+            $reportUser.SamAccountName -notlike "*svc*"
+        ) {
+            # Add the current direct report
+            $allReports += $reportUser
+
+            # Recursively get their direct reports
+            $allReports += Get-AllDirectReports -SamAccountName $reportUser.SamAccountName -OUFilter $OUFilter
+        }
+    }
+
+    return $allReports
+}
+
+# Get all direct reports recursively, applying all filters, and store them in the list
+$userlist = @()
+$userlist += Get-AllDirectReports -SamAccountName 'username' -OUFilter 'UserOUgoeshere'
+
+# Display the complete list of users
+$userlist
