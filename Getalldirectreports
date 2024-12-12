@@ -15,8 +15,11 @@
 
 function Get-AllDirectReports {
     param (
-        [string]$SamAccountName, # SamAccountName of the user
-        [string]$OUFilter        # Organizational Unit to filter by
+        [Parameter(Mandatory = $true)]
+        [string]$SamAccountName, 
+
+        [Parameter(Mandatory = $true)]
+        [string]$OUFilter        
     )
 
     # Fetch the user object based on the SamAccountName
